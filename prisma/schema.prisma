@@ -1,0 +1,174 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ServiceType {
+  MASJID_FUND
+  DEATH_COMMITTEE
+  CHARITY
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  OVERDUE
+}
+
+enum DeceasedStatus {
+  ALIVE
+  DECEASED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          UserRole  @default(MEMBER)
+  phone         String?
+  address       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  transactions  Transaction[]
+  deathCommitteeMember DeathCommitteeMember?
+
+  @@map("users")
+}
+
+model Service {
+  id            String    @id @default(cuid())
+  name          String
+  description   String?
+  type          ServiceType
+  isActive      Boolean   @default(true)
+  targetAmount  Float?
+  currentAmount Float     @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  transactions  Transaction[]
+
+  @@map("services")
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  amount        Float
+  status        TransactionStatus @default(PENDING)
+  paymentProof  String?           // URL to uploaded image
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  approvedAt    DateTime?
+  approvedBy    String?           // Admin user ID who approved
+  
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  serviceId     String
+  service       Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([serviceId])
+  @@index([status])
+  @@map("transactions")
+}
+
+model DeathCommitteeMember {
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthlySubscriptionFee Float     @default(500)
+  status                PaymentStatus @default(UNPAID)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  subscriptions         DeathCommitteeSubscription[]
+  dependents            Dependent[]
+  payouts               FuneralPayout[]
+
+  @@map("death_committee_members")
+}
+
+model DeathCommitteeSubscription {
+  id            String   @id @default(cuid())
+  month         Int      // 1-12
+  year          Int
+  amount        Float
+  isPaid        Boolean  @default(false)
+  paymentProof  String?
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  memberId      String
+  member        DeathCommitteeMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, month, year])
+  @@index([memberId])
+  @@index([year, month])
+  @@index([isPaid])
+  @@map("death_committee_subscriptions")
+}
+
+model Dependent {
+  id            String          @id @default(cuid())
+  name          String
+  relation      String          // e.g., "Spouse", "Child", "Parent"
+  age           Int
+  nic           String?         // National ID Card
+  deceasedStatus DeceasedStatus @default(ALIVE)
+  deceasedDate  DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  memberId      String
+  member        DeathCommitteeMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  payouts       FuneralPayout[]
+
+  @@index([memberId])
+  @@index([deceasedStatus])
+  @@map("dependents")
+}
+
+model FuneralPayout {
+  id            String   @id @default(cuid())
+  amount        Float
+  payoutDate    DateTime @default(now())
+  receiverName  String
+  receiverRelation String // e.g., "Spouse", "Child"
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  memberId      String
+  member        DeathCommitteeMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  dependentId   String?  // If payout is for a dependent
+  dependent     Dependent? @relation(fields: [dependentId], references: [id], onDelete: SetNull)
+
+  @@index([memberId])
+  @@index([payoutDate])
+  @@map("funeral_payouts")
+}
